@@ -111,7 +111,7 @@ CONFIG_SOFTWARE_EXPPORTS_SUPPORT=
 # Amazon Web Services IoT Platform
 #
 CONFIG_AWS_IOT_USE_HARDWARE_SECURE_ELEMENT=y
-CONFIG_AWS_IOT_MQTT_HOST=
+CONFIG_AWS_IOT_MQTT_HOST=a21ghg4xhvnani-ats.iot.us-east-1.amazonaws.com
 
 #
 # esp-cryptoauthlib
