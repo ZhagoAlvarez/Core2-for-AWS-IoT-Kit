@@ -39,6 +39,7 @@
 #include "freertos/semphr.h"
 #include "freertos/event_groups.h"
 #include "esp_log.h"
+#include "cJSON.h"
 
 #include "aws_iot_config.h"
 #include "aws_iot_log.h"
@@ -57,11 +58,13 @@ static const char *TAG = "MAIN";
 #define HEATING "HEATING"
 #define COOLING "COOLING"
 #define STANDBY "STANDBY"
+#define FCG "Finca Cafetalera Gerardo!"
 
 #define STARTING_ROOMTEMPERATURE 0.0f
 #define STARTING_SOUNDLEVEL 0x00
 #define STARTING_HVACSTATUS STANDBY
 #define STARTING_ROOMOCCUPANCY false
+#define STARTING_MESSAGGE FCG
 
 // Number of slices to split the microphone sample into
 #define AUDIO_TIME_SLICES 60
@@ -173,6 +176,7 @@ uint8_t soundBuffer = STARTING_SOUNDLEVEL;
 uint8_t reportedSound = STARTING_SOUNDLEVEL;
 char hvacStatus[7] = STARTING_HVACSTATUS;
 bool roomOccupancy = STARTING_ROOMOCCUPANCY;
+char message[50] = STARTING_MESSAGGE;
 
 // helper function for working with audio data
 long map(long x, long in_min, long in_max, long out_min, long out_max) {
@@ -252,6 +256,13 @@ void aws_iot_task(void *param) {
     roomOccupancyActuator.pData = &roomOccupancy;
     roomOccupancyActuator.type = SHADOW_JSON_BOOL;
     roomOccupancyActuator.dataLength = sizeof(bool);
+
+    jsonStruct_t messageHandler;
+    messageHandler.cb = NULL;
+    messageHandler.pKey = "message";
+    messageHandler.pData = &message;
+    messageHandler.type = SHADOW_JSON_STRING;
+    messageHandler.dataLength = strlen(message)+1;
 
     ESP_LOGI(TAG, "AWS IoT SDK Version %d.%d.%d-%s", VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH, VERSION_TAG);
 
@@ -350,25 +361,29 @@ void aws_iot_task(void *param) {
 
         // END get sensor readings
 
+        strcpy(message, FCG);  // Initialize the message
+        ESP_LOGD(TAG, "Debug: message initialized to \"%s\"", message);  // Debug log
+
+        // Log all device state variables
         ESP_LOGI(TAG, "*****************************************************************************************");
         ESP_LOGI(TAG, "On Device: roomOccupancy %s", roomOccupancy ? "true" : "false");
+        ESP_LOGI(TAG, "On Device: message \"%s\"", message);  // Log the message
         ESP_LOGI(TAG, "On Device: hvacStatus %s", hvacStatus);
         ESP_LOGI(TAG, "On Device: temperature %f", temperature);
         ESP_LOGI(TAG, "On Device: sound %d", reportedSound);
 
-        rc = aws_iot_shadow_init_json_document(JsonDocumentBuffer, sizeOfJsonDocumentBuffer);
-        if(SUCCESS == rc) {
-            rc = aws_iot_shadow_add_reported(JsonDocumentBuffer, sizeOfJsonDocumentBuffer, 4, &temperatureHandler,
-                                             &soundHandler, &roomOccupancyActuator, &hvacStatusActuator);
-            if(SUCCESS == rc) {
+            // Add messageHandler to shadow update
+            rc = aws_iot_shadow_add_reported(JsonDocumentBuffer, sizeOfJsonDocumentBuffer, 5, &temperatureHandler,
+                                            &soundHandler, &roomOccupancyActuator, &hvacStatusActuator, &messageHandler);
+            if (SUCCESS == rc) {
                 rc = aws_iot_finalize_json_document(JsonDocumentBuffer, sizeOfJsonDocumentBuffer);
-                if(SUCCESS == rc) {
+                if (SUCCESS == rc) {
                     ESP_LOGI(TAG, "Update Shadow: %s", JsonDocumentBuffer);
                     rc = aws_iot_shadow_update(&iotCoreClient, client_id, JsonDocumentBuffer,
-                                               ShadowUpdateStatusCallback, NULL, 4, true);
+                                            ShadowUpdateStatusCallback, NULL, 4, true);
                     shadowUpdateInProgress = true;
                 }
-            }
+            
         }
         ESP_LOGI(TAG, "*****************************************************************************************");
         ESP_LOGI(TAG, "Stack remaining for task '%s' is %d bytes", pcTaskGetTaskName(NULL), uxTaskGetStackHighWaterMark(NULL));
@@ -395,11 +410,14 @@ void app_main()
     Core2ForAWS_Init();
     Core2ForAWS_Display_SetBrightness(80);
     Core2ForAWS_LED_Enable(1);
+    Core2ForAWS_Port_PinMode(PORT_B_ADC_PIN, ADC); // PORT B FOR SENSOR
 
     xMaxNoiseSemaphore = xSemaphoreCreateMutex();
 
-    ui_init();
+
     initialise_wifi();
+    ui_init();
+    
 
     xTaskCreatePinnedToCore(&aws_iot_task, "aws_iot_task", 4096*2, NULL, 5, NULL, 1);
 }
